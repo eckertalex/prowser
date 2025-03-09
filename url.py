@@ -3,21 +3,22 @@ import ssl
 
 class URL:
     def __init__(self, url):
-        self.scheme, url = url.split("://", 1)
-        assert self.scheme in ["http", "https"]
+        self.scheme, url = url.split("://", maxsplit=1)
+        assert self.scheme in ["http", "https", "file"], f"Scheme '{self.scheme}' not supported"
 
-        if "/" not in url:
-            url += "/"
-        self.host, url = url.split("/", 1)
-        self.path = "/" + url
+        if self.scheme != "file":
+            if "/" not in url:
+                url += "/"
+            self.host, url = url.split("/", maxsplit=1)
+            self.path = "/" + url
+        else:
+            self.host = ""
+            self.path = url
 
-        if self.scheme == "http":
-            self.port = 80
-        elif self.scheme == "https":
-            self.port = 443
+        self.port = 443 if self.scheme == "https" else 80
 
-        if ":" in self.host:
-            self.host, port = self.host.split(":", 1)
+        if ":" in self.host and self.scheme != "file":
+            self.host, port = self.host.split(":", maxsplit=1)
             self.port = int(port)
 
     def request(self):
@@ -32,20 +33,22 @@ class URL:
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket(s, server_hostname=self.host)
 
-        request = "GET {} HTTP/1.0\r\n".format(self.path)
-        request += "Host: {}\r\n".format(self.host)
+        request = f"GET {self.path} HTTP/1.1\r\n"
+        request += f"Host: {self.host}\r\n"
+        request += "Connection: close\r\n"
+        request += "User-Agent: Prowser\r\n"
         request += "\r\n"
         s.send(request.encode("utf8"))
 
         response = s.makefile("r", encoding="utf8", newline="\r\n")
         statusline = response.readline()
-        version, status, explanation = statusline.split(" ", 2)
+        version, status, explanation = statusline.split(" ", maxsplit=2)
 
         response_headers = {}
         while True:
             line = response.readline()
             if line == "\r\n": break
-            header, value = line.split(":", 1)
+            header, value = line.split(":", maxsplit=1)
             response_headers[header.casefold()] = value.strip()
 
         assert "transfer-encoding" not in response_headers
@@ -67,7 +70,14 @@ def show(body):
             print(c, end="")
 
 def load(url):
-    body = url.request()
+    body = ""
+    if url.scheme == "file":
+        file = open(url.path, "r")
+        body = file.read()
+    elif url.scheme in {"http", "https"}:
+        body = url.request()
+    else:
+        body = "TODO\r\n"
     show(body)
 
 if __name__ == "__main__":
